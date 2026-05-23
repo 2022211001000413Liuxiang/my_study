@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.study-meta.json
+.npm-cache/
+npm-debug.log*
+frontend/node_modules/
+frontend/dist/
+backend/target/
+.m2/

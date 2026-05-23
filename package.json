@@ -1,0 +1,16 @@
+{
+  "name": "my-study-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm:backend\" \"npm:frontend\"",
+    "frontend": "npm --prefix frontend run dev -- --host 127.0.0.1",
+    "backend": "mvn -s .mvn-settings.xml -f backend/pom.xml spring-boot:run",
+    "build": "npm --prefix frontend run build && mvn -s .mvn-settings.xml -f backend/pom.xml package",
+    "check": "npm --prefix frontend run check && mvn -s .mvn-settings.xml -f backend/pom.xml test"
+  },
+  "dependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

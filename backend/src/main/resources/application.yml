@@ -1,0 +1,11 @@
+server:
+  port: ${PORT:4174}
+
+spring:
+  application:
+    name: study-workbench
+
+study:
+  md-root: ${STUDY_MD_ROOT:md}
+  meta-path: ${STUDY_META_PATH:.study-meta.json}
+  admin-password: ${STUDY_ADMIN_PASSWORD:123456}
