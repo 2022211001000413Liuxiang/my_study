@@ -3,6 +3,9 @@ package com.study.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.study.config.StudyProperties;
 import com.study.model.CategoryDto;
+import com.study.model.GraphDto;
+import com.study.model.GraphEdgeDto;
+import com.study.model.GraphNodeDto;
 import com.study.model.HeadingDto;
 import com.study.model.NoteDto;
 import com.study.model.NoteSummary;
@@ -43,6 +46,9 @@ import org.springframework.stereotype.Service;
 public class NoteService {
   private static final Pattern HEADING = Pattern.compile("^(#{1,3})\\s+(.+)$");
   private static final Pattern INVALID_WINDOWS_NAME = Pattern.compile("[<>:\"\\\\|?*\\x00-\\x1F]");
+  private static final Pattern MARKDOWN_LINK = Pattern.compile("(?<!!)\\[[^]]+?]\\(([^)#]+)(?:#[^)]+)?\\)");
+  private static final Pattern OBSIDIAN_LINK = Pattern.compile("(?<!!?)\\[\\[([^]#|]+)(?:#[^]|]+)?(?:\\|[^]]+)?]]");
+  private static final Pattern KEYWORD = Pattern.compile("[\\p{IsHan}]{2,}|[a-zA-Z][a-zA-Z0-9_]{2,}");
 
   private final StudyProperties properties;
   private final ObjectMapper objectMapper;
@@ -119,6 +125,10 @@ public class NoteService {
 
   public synchronized ReviewOverviewDto reviewOverview() {
     return buildReviewOverview(LocalDate.now());
+  }
+
+  public synchronized GraphDto graph() throws IOException {
+    return buildGraph(LocalDate.now());
   }
 
   public synchronized ReviewQueueDto submitReview(String id, String level) throws IOException {
@@ -519,10 +529,189 @@ public class NoteService {
     );
   }
 
+  private GraphDto buildGraph(LocalDate today) throws IOException {
+    List<GraphNodeDto> nodes = indexCache.stream()
+        .map(note -> new GraphNodeDto(
+            note.id(),
+            note.path(),
+            note.title(),
+            note.category(),
+            note.tags(),
+            note.wordCount(),
+            note.status(),
+            note.reviewLevel(),
+            isDue(note.nextReviewAt(), today),
+            note.updatedAt()
+        ))
+        .toList();
+
+    Map<String, NoteGraphData> graphData = new LinkedHashMap<>();
+    Map<String, String> lookup = new LinkedHashMap<>();
+    for (NoteSummary note : indexCache) {
+      String markdown = Files.readString(note.absolutePath(), StandardCharsets.UTF_8);
+      NoteGraphData data = new NoteGraphData(
+          note,
+          extractLinkedTargets(markdown),
+          extractKeywords(note, markdown)
+      );
+      graphData.put(note.id(), data);
+      lookup.put(normalizeLookup(note.title()), note.id());
+      lookup.put(normalizeLookup(stripMdExtension(note.path())), note.id());
+      lookup.put(normalizeLookup(stripMdExtension(Path.of(note.path()).getFileName().toString())), note.id());
+    }
+
+    Map<String, EdgeAccumulator> edges = new LinkedHashMap<>();
+    for (int i = 0; i < indexCache.size(); i += 1) {
+      NoteSummary source = indexCache.get(i);
+      NoteGraphData sourceData = graphData.get(source.id());
+      for (int j = i + 1; j < indexCache.size(); j += 1) {
+        NoteSummary target = indexCache.get(j);
+        NoteGraphData targetData = graphData.get(target.id());
+        List<String> reasons = new ArrayList<>();
+        int weight = 0;
+
+        List<String> sharedTags = intersection(source.tags(), target.tags());
+        if (!sharedTags.isEmpty()) {
+          weight += Math.min(5, sharedTags.size() * 2);
+          reasons.add("共同标签：" + String.join("、", sharedTags.stream().limit(4).toList()));
+        }
+
+        if (source.category().equals(target.category())) {
+          weight += 2;
+          reasons.add("同分类：" + source.category());
+        }
+
+        boolean linked = linksTo(sourceData.links(), target, lookup) || linksTo(targetData.links(), source, lookup);
+        if (linked) {
+          weight += 5;
+          reasons.add("正文链接互相关联");
+        }
+
+        List<String> sharedKeywords = intersection(sourceData.keywords(), targetData.keywords()).stream()
+            .limit(5)
+            .toList();
+        if (!sharedKeywords.isEmpty()) {
+          weight += Math.min(4, sharedKeywords.size());
+          reasons.add("关键词重合：" + String.join("、", sharedKeywords));
+        }
+
+        if (weight > 0) {
+          addEdge(edges, source.id(), target.id(), weight, reasons);
+        }
+      }
+    }
+
+    Map<String, Integer> keptPerNode = new LinkedHashMap<>();
+    List<GraphEdgeDto> edgeDtos = edges.values().stream()
+        .sorted(Comparator
+            .comparingInt(EdgeAccumulator::weight).reversed()
+            .thenComparing(edge -> edge.source + edge.target))
+        .filter(edge -> {
+          int sourceCount = keptPerNode.getOrDefault(edge.source, 0);
+          int targetCount = keptPerNode.getOrDefault(edge.target, 0);
+          if (sourceCount >= 8 || targetCount >= 8) {
+            return false;
+          }
+          keptPerNode.put(edge.source, sourceCount + 1);
+          keptPerNode.put(edge.target, targetCount + 1);
+          return true;
+        })
+        .map(edge -> new GraphEdgeDto(edge.source, edge.target, edge.weight, List.copyOf(edge.reasons)))
+        .toList();
+
+    return new GraphDto(nodes, edgeDtos);
+  }
+
   private List<ReviewDayDto> toReviewDays(Map<LocalDate, Integer> days) {
     return days.entrySet().stream()
         .map(entry -> new ReviewDayDto(entry.getKey().toString(), entry.getValue()))
         .toList();
+  }
+
+  private List<String> extractLinkedTargets(String markdown) {
+    LinkedHashSet<String> links = new LinkedHashSet<>();
+    Matcher markdownMatcher = MARKDOWN_LINK.matcher(markdown);
+    while (markdownMatcher.find()) {
+      String raw = decode(markdownMatcher.group(1).trim()).replace('\\', '/');
+      if (!raw.matches("^[a-zA-Z]+://.*") && !raw.startsWith("/api/assets/")) {
+        links.add(normalizeLookup(stripMdExtension(raw)));
+        links.add(normalizeLookup(stripMdExtension(Path.of(raw).getFileName().toString())));
+      }
+    }
+    Matcher obsidianMatcher = OBSIDIAN_LINK.matcher(markdown);
+    while (obsidianMatcher.find()) {
+      String raw = obsidianMatcher.group(1).trim();
+      links.add(normalizeLookup(stripMdExtension(raw)));
+      links.add(normalizeLookup(stripMdExtension(Path.of(raw).getFileName().toString())));
+    }
+    return links.stream().filter(value -> !value.isBlank()).toList();
+  }
+
+  private List<String> extractKeywords(NoteSummary note, String markdown) {
+    String text = (note.title() + " " + note.category() + " " + String.join(" ", note.tags()) + " "
+        + markdown.substring(0, Math.min(markdown.length(), 2000))).toLowerCase(Locale.ROOT);
+    LinkedHashSet<String> keywords = new LinkedHashSet<>();
+    Matcher matcher = KEYWORD.matcher(text);
+    while (matcher.find() && keywords.size() < 80) {
+      String keyword = matcher.group().trim();
+      if (isUsefulKeyword(keyword)) {
+        keywords.add(keyword);
+      }
+    }
+    return List.copyOf(keywords);
+  }
+
+  private boolean isUsefulKeyword(String keyword) {
+    return !List.of(
+        "the", "and", "for", "with", "this", "that", "from", "class", "public", "private", "return",
+        "一个", "这个", "可以", "进行", "使用", "如果", "就是", "因为", "所以", "以及", "时候", "需要", "不会", "没有"
+    ).contains(keyword);
+  }
+
+  private boolean linksTo(List<String> links, NoteSummary target, Map<String, String> lookup) {
+    if (links.isEmpty()) {
+      return false;
+    }
+    for (String link : links) {
+      if (target.id().equals(lookup.get(link))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private List<String> intersection(List<String> source, List<String> target) {
+    LinkedHashSet<String> targetSet = new LinkedHashSet<>(target);
+    List<String> shared = new ArrayList<>();
+    for (String item : source) {
+      if (targetSet.contains(item)) {
+        shared.add(item);
+      }
+    }
+    return shared;
+  }
+
+  private void addEdge(Map<String, EdgeAccumulator> edges, String source, String target, int weight, List<String> reasons) {
+    String key = source.compareTo(target) <= 0 ? source + "::" + target : target + "::" + source;
+    EdgeAccumulator edge = edges.get(key);
+    if (edge == null) {
+      edges.put(key, new EdgeAccumulator(source, target, weight, new ArrayList<>(reasons)));
+      return;
+    }
+    edge.weight += weight;
+    for (String reason : reasons) {
+      if (!edge.reasons.contains(reason)) {
+        edge.reasons.add(reason);
+      }
+    }
+  }
+
+  private String normalizeLookup(String value) {
+    return (value == null ? "" : value)
+        .replace('\\', '/')
+        .replaceFirst("(?i)\\.md$", "")
+        .trim()
+        .toLowerCase(Locale.ROOT);
   }
 
   private boolean isDue(String nextReviewAt, LocalDate today) {
@@ -792,6 +981,26 @@ public class NoteService {
   public static class NotFoundException extends RuntimeException {
     public NotFoundException(String message) {
       super(message);
+    }
+  }
+
+  private record NoteGraphData(NoteSummary note, List<String> links, List<String> keywords) {}
+
+  private static final class EdgeAccumulator {
+    private final String source;
+    private final String target;
+    private int weight;
+    private final List<String> reasons;
+
+    private EdgeAccumulator(String source, String target, int weight, List<String> reasons) {
+      this.source = source;
+      this.target = target;
+      this.weight = weight;
+      this.reasons = reasons;
+    }
+
+    private int weight() {
+      return weight;
     }
   }
 

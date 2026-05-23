@@ -2,6 +2,7 @@ package com.study.controller;
 
 import com.study.model.NoteDto;
 import com.study.model.NotesResponse;
+import com.study.model.GraphDto;
 import com.study.model.ReviewOverviewDto;
 import com.study.model.ReviewQueueDto;
 import com.study.service.AuthService;
@@ -53,6 +54,11 @@ public class NoteController {
   @GetMapping("/notes/{id}")
   public NoteService.NoteDetail note(@PathVariable String id) throws IOException {
     return noteService.read(id);
+  }
+
+  @GetMapping("/graph")
+  public GraphDto graph() throws IOException {
+    return noteService.graph();
   }
 
   @GetMapping("/reviews/today")

@@ -274,6 +274,9 @@ h1, h2, h3, p { margin-top: 0; }
   --stream-width: 68px;
   --inspector-width: 68px;
 }
+.study-grid.single-page {
+  grid-template-columns: minmax(0, 1fr);
+}
 
 .note-stream, .main-panel, .inspector {
   min-height: 0;
@@ -946,6 +949,291 @@ h1, h2, h3, p { margin-top: 0; }
   line-height: 1.55;
 }
 
+.graph-pane {
+  min-height: 100%;
+  padding: 18px;
+}
+
+.graph-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.graph-header h2 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 36px);
+  line-height: 1.16;
+}
+
+.graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-controls button,
+.open-note-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.045);
+  transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.graph-controls button.active,
+.graph-controls button:hover,
+.open-note-button:hover {
+  color: var(--ink);
+  border-color: transparent;
+  background: var(--cyan);
+  transform: translateY(-1px);
+}
+
+.graph-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 14px;
+  min-height: calc(100vh - 186px);
+}
+
+.graph-canvas,
+.graph-detail {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(7, 10, 14, 0.42);
+}
+
+.graph-canvas {
+  position: relative;
+  overflow: hidden;
+  contain: layout paint;
+  background:
+    linear-gradient(135deg, rgba(98, 218, 198, 0.08), transparent 34%),
+    linear-gradient(230deg, rgba(231, 193, 111, 0.08), transparent 28%),
+    rgba(5, 8, 11, 0.52);
+}
+
+.graph-summary {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+}
+
+.graph-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(98, 218, 198, 0.2);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(9, 13, 17, 0.76);
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+}
+
+.graph-canvas svg {
+  display: block;
+  width: 100%;
+  height: min(74vh, 820px);
+  min-height: 620px;
+  touch-action: none;
+  user-select: none;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: rgba(152, 167, 162, 0.3);
+  stroke-linecap: round;
+  opacity: 0.82;
+  transition: stroke 140ms ease, opacity 140ms ease;
+}
+
+.graph-edge.active {
+  stroke: rgba(231, 193, 111, 0.72);
+  opacity: 1;
+}
+
+.graph-node {
+  cursor: grab;
+  outline: none;
+}
+
+.graph-node.dragging {
+  cursor: grabbing;
+}
+
+.node-halo {
+  opacity: 0.12;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.node-core {
+  stroke: rgba(255, 255, 255, 0.26);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.28));
+  transition: stroke 140ms ease, stroke-width 140ms ease, transform 140ms ease;
+}
+
+.graph-node text {
+  fill: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(3, 6, 8, 0.9);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.graph-node:hover .node-halo,
+.graph-node.active .node-halo,
+.graph-node.highlighted .node-halo {
+  opacity: 0.28;
+}
+
+.graph-node:hover .node-core,
+.graph-node.active .node-core,
+.graph-node.dragging .node-core {
+  stroke: rgba(255, 255, 255, 0.82);
+  stroke-width: 2.5;
+  transform: scale(1.05);
+}
+
+.graph-node.dragging .node-halo {
+  opacity: 0.36;
+}
+
+.graph-node.due .node-core {
+  stroke: var(--gold);
+}
+
+.graph-node.highlighted .node-core {
+  stroke: var(--rose);
+  stroke-width: 2.5;
+}
+
+.graph-detail {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
+  max-height: min(74vh, 820px);
+}
+
+.graph-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.graph-card small {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.graph-card h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.graph-facts,
+.graph-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.graph-facts span,
+.graph-tags span {
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.graph-tags span {
+  color: var(--cyan);
+  border-color: rgba(98, 218, 198, 0.22);
+  background: rgba(98, 218, 198, 0.075);
+}
+
+.open-note-button {
+  width: 100%;
+}
+
+.related-list {
+  display: grid;
+  gap: 8px;
+}
+
+.related-list button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.035);
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.related-list button:hover {
+  border-color: rgba(231, 193, 111, 0.3);
+  background: rgba(231, 193, 111, 0.08);
+  transform: translateX(2px);
+}
+
+.related-list strong {
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.related-list span,
+.related-list em,
+.graph-mini p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.related-list em {
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.graph-mini p {
+  margin: 0 0 6px;
+}
+
 .inspector {
   display: grid;
   align-content: start;
@@ -1202,6 +1490,20 @@ h1, h2, h3, p { margin-top: 0; }
   .review-calendar {
     grid-template-columns: 1fr 1fr;
   }
+  .graph-header {
+    flex-direction: column;
+  }
+  .graph-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .graph-canvas svg {
+    height: 560px;
+    min-height: 520px;
+  }
+  .graph-detail {
+    max-height: none;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1228,6 +1530,25 @@ h1, h2, h3, p { margin-top: 0; }
   }
   .heat-strip.upcoming {
     grid-template-columns: repeat(15, minmax(8px, 1fr));
+  }
+  .graph-pane {
+    padding: 12px;
+  }
+  .graph-controls {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+  }
+  .graph-controls button {
+    flex: 0 0 auto;
+  }
+  .graph-canvas svg {
+    height: 430px;
+    min-height: 390px;
+  }
+  .graph-node text {
+    font-size: 12px;
   }
 }
 

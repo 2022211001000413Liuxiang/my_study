@@ -1,7 +1,7 @@
 export type Status = 'learning' | 'reviewing' | 'done';
 export type ReviewLevel = 'again' | 'normal' | 'easy';
 export type ReviewFilter = 'all' | 'due' | 'unreviewed' | 'again' | 'normal' | 'easy' | 'scheduled';
-export type ViewMode = 'reader' | 'review' | 'admin';
+export type ViewMode = 'reader' | 'review' | 'graph' | 'admin';
 
 export type Heading = {
   level: number;
@@ -70,4 +70,29 @@ export type ReviewOverview = {
   completedDays: ReviewDay[];
   upcomingDays: ReviewDay[];
   recentReviewed: Note[];
+};
+
+export type GraphNode = {
+  id: string;
+  path: string;
+  title: string;
+  category: string;
+  tags: string[];
+  wordCount: number;
+  status: Status;
+  reviewLevel: ReviewLevel | null;
+  dueReview: boolean;
+  updatedAt: string;
+};
+
+export type GraphEdge = {
+  source: string;
+  target: string;
+  weight: number;
+  reasons: string[];
+};
+
+export type GraphData = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
 };

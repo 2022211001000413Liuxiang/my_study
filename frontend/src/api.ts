@@ -1,4 +1,4 @@
-import type { Note, NotesResponse, ReviewFilter, ReviewLevel, ReviewOverview, ReviewQueue, Status } from './types';
+import type { GraphData, Note, NotesResponse, ReviewFilter, ReviewLevel, ReviewOverview, ReviewQueue, Status } from './types';
 
 const baseUrl = import.meta.env.VITE_API_BASE || '';
 
@@ -37,6 +37,9 @@ export const api = {
   },
   note(id: string) {
     return request<{ note: Note; markdown: string; rawMarkdown: string }>(`/api/notes/${id}`);
+  },
+  graph() {
+    return request<GraphData>('/api/graph');
   },
   reviewToday() {
     return request<ReviewQueue>('/api/reviews/today');

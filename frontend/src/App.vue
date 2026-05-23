@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { BookOpen, CalendarCheck, Edit3 } from '@lucide/vue';
+import { BookOpen, CalendarCheck, Edit3, Network } from '@lucide/vue';
 import { api } from './api';
 import AdminStudio from './components/AdminStudio.vue';
+import GraphPane from './components/GraphPane.vue';
 import InsightPanel from './components/InsightPanel.vue';
 import LoginGate from './components/LoginGate.vue';
 import NoteList from './components/NoteList.vue';
@@ -11,6 +12,7 @@ import ReviewPane from './components/ReviewPane.vue';
 import SidebarNav from './components/SidebarNav.vue';
 import type {
   Category,
+  GraphData,
   Note,
   ReviewFilter,
   ReviewLevel,
@@ -23,6 +25,7 @@ import type {
 
 const emptyStats: Stats = { total: 0, words: 0, favorites: 0, dueReviews: 0, tags: [] };
 const emptyReviewQueue: ReviewQueue = { notes: [], dueCount: 0, reviewedToday: 0, nextReviewAt: null };
+const emptyGraph: GraphData = { nodes: [], edges: [] };
 const emptyReviewOverview: ReviewOverview = {
   dueToday: 0,
   reviewedToday: 0,
@@ -38,6 +41,7 @@ const categories = ref<Category[]>([]);
 const stats = ref<Stats>(emptyStats);
 const reviewQueue = ref<ReviewQueue>(emptyReviewQueue);
 const reviewOverview = ref<ReviewOverview>(emptyReviewOverview);
+const graphData = ref<GraphData>(emptyGraph);
 const selectedId = ref('');
 const selectedCategory = ref('all');
 const selectedReview = ref<ReviewFilter>('all');
@@ -58,6 +62,7 @@ const notice = ref('');
 const busy = ref(false);
 const reviewBusy = ref(false);
 const notesLoading = ref(false);
+const graphLoading = ref(false);
 const streamCollapsed = ref(false);
 const inspectorCollapsed = ref(false);
 const noteCache = new Map<string, NoteDetail>();
@@ -102,6 +107,9 @@ watch(mode, (nextMode) => {
     focusReviewNote();
     loadReviewQueue().catch(showError);
   }
+  if (nextMode === 'graph') {
+    loadGraph().catch(showError);
+  }
 });
 
 watch(
@@ -114,7 +122,7 @@ watch(
 );
 
 async function loadInitialData() {
-  await Promise.all([loadNotes(), loadReviewQueue(), loadReviewOverview()]);
+  await Promise.all([loadNotes(), loadReviewQueue(), loadReviewOverview(), loadGraph()]);
 }
 
 async function loadNotes(
@@ -149,6 +157,15 @@ async function loadReviewQueue() {
 
 async function loadReviewOverview() {
   reviewOverview.value = await api.reviewOverview();
+}
+
+async function loadGraph() {
+  graphLoading.value = true;
+  try {
+    graphData.value = await api.graph();
+  } finally {
+    graphLoading.value = false;
+  }
 }
 
 async function loadNote(id: string) {
@@ -273,7 +290,7 @@ async function submitReview(level: ReviewLevel) {
   try {
     noteCache.delete(note.id);
     reviewQueue.value = await api.submitReview(note.id, level);
-    await Promise.all([loadNotes(), loadReviewOverview()]);
+    await Promise.all([loadNotes(), loadReviewOverview(), loadGraph()]);
     focusReviewNote();
     toast('复习进度已记录');
   } catch (error) {
@@ -284,7 +301,7 @@ async function submitReview(level: ReviewLevel) {
 }
 
 async function refreshAfterContentChange() {
-  await Promise.all([loadNotes(), loadReviewQueue(), loadReviewOverview()]);
+  await Promise.all([loadNotes(), loadReviewQueue(), loadReviewOverview(), loadGraph()]);
 }
 
 function focusReviewNote() {
@@ -300,6 +317,11 @@ function selectNote(id: string) {
     return;
   }
   selectedId.value = id;
+}
+
+function openGraphNote(id: string) {
+  selectedId.value = id;
+  mode.value = 'reader';
 }
 
 function toggleStream() {
@@ -346,6 +368,9 @@ function toast(message: string) {
             <CalendarCheck :size="17" /> 复习
             <b v-if="stats.dueReviews">{{ stats.dueReviews }}</b>
           </button>
+          <button :class="{ active: mode === 'graph' }" @click="mode = 'graph'">
+            <Network :size="17" /> 图谱
+          </button>
           <button :class="{ active: mode === 'admin' }" @click="mode = 'admin'">
             <Edit3 :size="17" /> 管理
           </button>
@@ -355,11 +380,13 @@ function toast(message: string) {
       <section
         class="study-grid"
         :class="{
+          'single-page': mode === 'graph',
           'stream-collapsed': streamCollapsed,
           'inspector-collapsed': inspectorCollapsed
         }"
       >
         <NoteList
+          v-if="mode !== 'graph'"
           :notes="notes"
           :selected-id="selectedId"
           :review-filter="selectedReview"
@@ -386,6 +413,17 @@ function toast(message: string) {
             :busy="reviewBusy"
             @feedback="submitReview"
           />
+          <GraphPane
+            v-else-if="mode === 'graph'"
+            :graph="graphData"
+            :selected-id="selectedId"
+            :selected-category="selectedCategory"
+            :query="query"
+            :note="currentNote"
+            :loading="graphLoading"
+            @open="openGraphNote"
+            @refresh="loadGraph"
+          />
           <AdminStudio
             v-else-if="token"
             :note="currentNote"
@@ -410,6 +448,7 @@ function toast(message: string) {
         </article>
 
         <InsightPanel
+          v-if="mode !== 'graph'"
           :stats="stats"
           :recent="recent"
           :note="currentNote"
