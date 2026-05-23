@@ -7,6 +7,9 @@ import com.study.model.HeadingDto;
 import com.study.model.NoteDto;
 import com.study.model.NoteSummary;
 import com.study.model.NotesResponse;
+import com.study.model.ReviewDayDto;
+import com.study.model.ReviewLevelStatsDto;
+import com.study.model.ReviewOverviewDto;
 import com.study.model.ReviewQueueDto;
 import com.study.model.StatsDto;
 import com.study.model.TagDto;
@@ -64,15 +67,23 @@ public class NoteService {
     rebuildIndex();
   }
 
-  public synchronized NotesResponse list(String category, String query) throws IOException {
+  public synchronized NotesResponse list(String category, String query, String review) throws IOException {
     String normalizedCategory = category == null ? "" : category.trim();
     String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+    String reviewFilter = normalizeReviewFilter(review);
+    LocalDate today = LocalDate.now();
     List<NoteSummary> notes = indexCache;
 
     if (!normalizedCategory.isBlank() && !"all".equals(normalizedCategory)) {
       notes = notes.stream()
           .filter(note -> note.category().equals(normalizedCategory)
               || note.path().startsWith(normalizedCategory + "/"))
+          .toList();
+    }
+
+    if (!"all".equals(reviewFilter)) {
+      notes = notes.stream()
+          .filter(note -> matchesReviewFilter(note, reviewFilter, today))
           .toList();
     }
 
@@ -104,6 +115,10 @@ public class NoteService {
 
   public synchronized ReviewQueueDto reviewsToday() {
     return buildReviewQueue(LocalDate.now());
+  }
+
+  public synchronized ReviewOverviewDto reviewOverview() {
+    return buildReviewOverview(LocalDate.now());
   }
 
   public synchronized ReviewQueueDto submitReview(String id, String level) throws IOException {
@@ -434,8 +449,94 @@ public class NoteService {
     );
   }
 
+  private ReviewOverviewDto buildReviewOverview(LocalDate today) {
+    Map<LocalDate, Integer> completed = new LinkedHashMap<>();
+    Map<LocalDate, Integer> upcoming = new LinkedHashMap<>();
+    for (int i = 13; i >= 0; i -= 1) {
+      completed.put(today.minusDays(i), 0);
+    }
+    for (int i = 0; i < 30; i += 1) {
+      upcoming.put(today.plusDays(i), 0);
+    }
+
+    int dueToday = 0;
+    int reviewedToday = 0;
+    int unreviewed = 0;
+    int again = 0;
+    int normal = 0;
+    int easy = 0;
+    int scheduled = 0;
+    List<NoteSummary> recentReviewed = new ArrayList<>();
+
+    for (NoteSummary note : indexCache) {
+      if (isDue(note.nextReviewAt(), today)) {
+        dueToday += 1;
+      }
+      if (note.lastReviewedAt() == null || note.lastReviewedAt().isBlank()) {
+        unreviewed += 1;
+      }
+      if ("again".equals(note.reviewLevel())) {
+        again += 1;
+      } else if ("normal".equals(note.reviewLevel())) {
+        normal += 1;
+      } else if ("easy".equals(note.reviewLevel())) {
+        easy += 1;
+      }
+      if (parseDate(note.nextReviewAt()).map(date -> date.isAfter(today)).orElse(false)) {
+        scheduled += 1;
+      }
+
+      Optional<LocalDate> reviewedDate = reviewedDate(note.lastReviewedAt());
+      if (reviewedDate.isPresent()) {
+        LocalDate date = reviewedDate.get();
+        if (completed.containsKey(date)) {
+          completed.put(date, completed.get(date) + 1);
+        }
+        if (date.equals(today)) {
+          reviewedToday += 1;
+        }
+        recentReviewed.add(note);
+      }
+
+      Optional<LocalDate> nextDate = parseDate(note.nextReviewAt());
+      if (nextDate.isPresent() && upcoming.containsKey(nextDate.get())) {
+        LocalDate date = nextDate.get();
+        upcoming.put(date, upcoming.get(date) + 1);
+      }
+    }
+
+    recentReviewed.sort(Comparator
+        .comparing(NoteSummary::lastReviewedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+        .reversed());
+
+    return new ReviewOverviewDto(
+        dueToday,
+        reviewedToday,
+        new ReviewLevelStatsDto(unreviewed, again, normal, easy, scheduled),
+        toReviewDays(completed),
+        toReviewDays(upcoming),
+        recentReviewed.stream().limit(6).map(NoteSummary::toDto).toList()
+    );
+  }
+
+  private List<ReviewDayDto> toReviewDays(Map<LocalDate, Integer> days) {
+    return days.entrySet().stream()
+        .map(entry -> new ReviewDayDto(entry.getKey().toString(), entry.getValue()))
+        .toList();
+  }
+
   private boolean isDue(String nextReviewAt, LocalDate today) {
     return parseDate(nextReviewAt).map(date -> !date.isAfter(today)).orElse(true);
+  }
+
+  private boolean matchesReviewFilter(NoteSummary note, String reviewFilter, LocalDate today) {
+    return switch (reviewFilter) {
+      case "due" -> isDue(note.nextReviewAt(), today);
+      case "unreviewed" -> note.lastReviewedAt() == null || note.lastReviewedAt().isBlank();
+      case "again", "normal", "easy" -> reviewFilter.equals(note.reviewLevel());
+      case "scheduled" -> parseDate(note.nextReviewAt()).map(date -> date.isAfter(today)).orElse(false);
+      default -> true;
+    };
   }
 
   private boolean isReviewedOn(String lastReviewedAt, LocalDate date) {
@@ -446,6 +547,17 @@ public class NoteService {
       return Instant.parse(lastReviewedAt).atZone(ZoneId.systemDefault()).toLocalDate().equals(date);
     } catch (RuntimeException ignored) {
       return parseDate(lastReviewedAt).map(date::equals).orElse(false);
+    }
+  }
+
+  private Optional<LocalDate> reviewedDate(String lastReviewedAt) {
+    if (lastReviewedAt == null || lastReviewedAt.isBlank()) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(Instant.parse(lastReviewedAt).atZone(ZoneId.systemDefault()).toLocalDate());
+    } catch (RuntimeException ignored) {
+      return parseDate(lastReviewedAt);
     }
   }
 
@@ -581,6 +693,16 @@ public class NoteService {
       return null;
     }
     return List.of("again", "normal", "easy").contains(level) ? level : null;
+  }
+
+  private String normalizeReviewFilter(String review) {
+    if (review == null || review.isBlank()) {
+      return "all";
+    }
+    String normalized = review.trim().toLowerCase(Locale.ROOT);
+    return List.of("all", "due", "unreviewed", "again", "normal", "easy", "scheduled").contains(normalized)
+        ? normalized
+        : "all";
   }
 
   private int reviewIntervalDays(String level, int reviewCount) {

@@ -2,6 +2,7 @@ package com.study.controller;
 
 import com.study.model.NoteDto;
 import com.study.model.NotesResponse;
+import com.study.model.ReviewOverviewDto;
 import com.study.model.ReviewQueueDto;
 import com.study.service.AuthService;
 import com.study.service.NoteService;
@@ -43,9 +44,10 @@ public class NoteController {
   @GetMapping("/notes")
   public NotesResponse notes(
       @RequestParam(defaultValue = "") String category,
-      @RequestParam(defaultValue = "") String q
+      @RequestParam(defaultValue = "") String q,
+      @RequestParam(defaultValue = "all") String review
   ) throws IOException {
-    return noteService.list(category, q);
+    return noteService.list(category, q, review);
   }
 
   @GetMapping("/notes/{id}")
@@ -56,6 +58,11 @@ public class NoteController {
   @GetMapping("/reviews/today")
   public ReviewQueueDto reviewsToday() {
     return noteService.reviewsToday();
+  }
+
+  @GetMapping("/reviews/overview")
+  public ReviewOverviewDto reviewOverview() {
+    return noteService.reviewOverview();
   }
 
   @PostMapping("/reviews/{id}")
